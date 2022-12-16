@@ -1,74 +1,131 @@
 import puppeteer from "puppeteer";
+import fs from "fs";
 
-(async () => {
-  const browser = await puppeteer.launch({
-    headless: false,
-    ignoreHTTPSErrors: true,
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    args: [
-      `--window-size=1550,1000`
-    ],
-    defaultViewport: {
-      width: 1550,
-      height: 1000
-    }
-  });
+const preparePageForTests = async (page) => {
+  const userAgent =
+    "Mozilla/5.0 (X11; Linux x86_64)" +
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.39 Safari/537.36";
+  await page.setUserAgent(userAgent);
+};
 
+const browserConfig = {
+  headless: false,
+  // ignoreDefaultArgs: [
+  //   "--enable-automation",
+  // ],
+  // dumpio: true,
+  // autoClose: true,
+  // devtools: false,
+  ignoreHTTPSErrors: true,
+  executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  // userDataDir:
+  //   "C:\\Users\\Fabián Medina\\AppData\\Local\\Google\\Chrome\\User Data",
+  args: [
+    `--window-size=1250,800`,
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    // "--disable-gpu",
+  ],
+  defaultViewport: { width: 1250, height: 800 },
+};
+
+const login = async () => {
+  const browser = await puppeteer.launch(browserConfig);
   const page = await browser.newPage();
-  // await page.setViewport({ width: 1366, height: 768 });
-  await page.setExtraHTTPHeaders({
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.131 Safari/537.36',
-    'upgrade-insecure-requests': '1',
-    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
-  })
+  await preparePageForTests(page);
 
+  await page.goto("https://www.macys.com/account/signin");
+
+  await page.type("#email", "fabianmedina09@gmail.com");
+  await page.type("#pw-input", "yEvP2*+3E#G$77g");
+  await page.click("#sign-in");
+  await page.waitForTimeout(5000);
+
+  const dataCookies = await page.cookies();
+  dataCookies.push({ name: "currency", value: "CNY", domain: "macys.com" });
+  dataCookies.push({
+    name: "shippingCountry",
+    value: "CN",
+    domain: "macys.com",
+  });
+  const cookies = JSON.stringify(dataCookies);
+  const sessionStorage = await page.evaluate(() =>
+    JSON.stringify(sessionStorage)
+  );
+  const localStorage = await page.evaluate(() => JSON.stringify(localStorage));
+
+  await fs.writeFile("./cookies.json", cookies);
+  await fs.writeFile("./sessionStorage.json", sessionStorage);
+  await fs.writeFile("./localStorage.json", localStorage);
+  browser.close();
+};
+
+const loadData = async (page) => {
+  const cookiesString = await fs.readFile("./cookies.json");
+  const cookies = JSON.parse(cookiesString);
+
+  const sessionStorageString = await fs.readFile("./sessionStorage.json");
+  const sessionStorage = JSON.parse(sessionStorageString);
+
+  const localStorageString = await fs.readFile("./localStorage.json");
+  const localStorage = JSON.parse(localStorageString);
+
+  await page.setCookie(...cookies);
+  await page.evaluate((data) => {
+    for (const [key, value] of Object.entries(data)) {
+      sessionStorage[key] = value;
+    }
+  }, sessionStorage);
+
+  await page.evaluate((data) => {
+    for (const [key, value] of Object.entries(data)) {
+      localStorage[key] = value;
+    }
+  }, sessionStorage);
+};
+
+const addProductToCart = async ({ url, size, color }) => {
+  const browser = await puppeteer.launch(browserConfig);
+  const page = await browser.newPage();
+  await preparePageForTests(page);
   try {
-    await page.goto('https://www.macys.com/', { waitUntil: 'networkidle2' });
+    await page.goto(url, { waitUntil: "networkidle2" });
+    const colorLi = await page.$$(
+      `ul > li.color-swatch:nth-child(${color}) > div`
+    );
+    await colorLi[0].click();
+
+    await page.click('li.swatch-itm[data-index="' + size + '"]');
+    await page.waitForTimeout(2000);
+
+    const [buttonBag] = await page.$x("//button[contains(., 'Add To Bag')]");
+    if (buttonBag) {
+      await buttonBag.click();
+    }
+
+    await page.waitForTimeout(2000);
+    const [buttonContinue] = await page.$x(
+      "//button[contains(., 'Continue Shopping')]"
+    );
+    if (buttonContinue) {
+      await buttonContinue.click();
+    }
   } catch (error) {
     console.log(error);
+  } finally {
+    await page.waitForTimeout(5000);
+    await browser.close();
   }
+};
 
-  await page.type('#globalSearchInputField', 'Calvin clein');
-  page.keyboard.press('Enter');
-
-  console.log("before waiting");
-  await page.waitForTimeout(5000);
-  console.log("after waiting");
-
-
-  // await container.click()
-  const lis = await page.$$('ul.items li') // all <li> element handles within the ul
-  await lis[0].click()
- 
-
-
-  console.log("before waiting");
-  await page.waitForTimeout(5000);
-  console.log("after waiting");
-  
-
-  // Type into search box.
-    
-
-  //   // Wait for suggest overlay to appear and click "show all results".
-  //   const allResultsSelector = '.devsite-suggest-all-results';
-  //   await page.waitForSelector(allResultsSelector);
-  //   await page.click(allResultsSelector);
-
-  //   // Wait for the results page to load and display the results.
-  //   const resultsSelector = '.gsc-results .gs-title';
-  //   await page.waitForSelector(resultsSelector);
-
-  //   // Extract the results from the page.
-  //   const links = await page.evaluate(resultsSelector => {
-  //     return [...document.querySelectorAll(resultsSelector)].map(anchor => {
-  //       const title = anchor.textContent.split('|')[0].trim();
-  //       return `${title} - ${anchor.href}`;
-  //     });
-  //   }, resultsSelector);
-
-  // Print all the files.
-  //   console.log(links.join("\n"));
-
-  await browser.close();
-})();
+export const macysSelectProducts = async (url, color = 1, size = 1) => {
+  // await login();
+  // await loadData(page);
+  await addProductToCart({ url, size, color });
+  // await page.setExtraHTTPHeaders({
+  //   "upgrade-insecure-requests": "1",
+  //   accept:
+  //     "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+  //   connection: "keep-alive",
+  // });
+};
